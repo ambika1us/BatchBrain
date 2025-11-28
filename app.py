@@ -1,14 +1,32 @@
 import streamlit as st
 from pymongo import MongoClient
-from config import MONGO_URI, DB_NAME, COLLECTION_NAME,SCORE_COLLECTION
+from config import MONGO_URI, DB_NAME, SCORE_COLLECTION
 import datetime
-
 import random
 
 # MongoDB connection
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
+
+# 🔽 Dropdown for collection selection
+collection_choice = st.selectbox(
+    "Choose a quiz collection",
+    ["nosql", "ips"],  # available collections
+    index=0            # default selection
+)
+
+# Use the selected collection
+collection = db[collection_choice]
+# Reset quiz if collection changes
+if "current_collection" not in st.session_state:
+    st.session_state.current_collection = collection_choice
+
+if st.session_state.current_collection != collection_choice:
+    st.session_state.current_collection = collection_choice
+    if "quiz_questions" in st.session_state:
+        del st.session_state.quiz_questions
+        del st.session_state.answers
+        st.session_state.submitted = False
 
 # Load and shuffle 15 random questions
 if "quiz_questions" not in st.session_state:
@@ -19,6 +37,7 @@ if "quiz_questions" not in st.session_state:
 
 st.title("🧠 Data Communication Quiz")
 st.markdown("Answer all 15 questions and submit at the end.")
+
 # Collect user identity
 if "user_info" not in st.session_state:
     st.session_state.user_info = {"name": "", "email": ""}
@@ -27,16 +46,14 @@ st.session_state.user_info["name"] = st.text_input("Enter your name", value=st.s
 st.session_state.user_info["email"] = st.text_input("Enter your email", value=st.session_state.user_info["email"])
 
 for i, q in enumerate(st.session_state.quiz_questions):
-    st.subheader(f"Q{i+1}: {q['question']}")
+    #st.subheader(f"Q{i+1}: {q['question']}")
+    st.subheader(f"Q{i + 1}: {q['question']}")
 
-    # Determine the index of the previously selected answer (if any)
     index = (
         q["options"].index(st.session_state.answers[i])
         if st.session_state.answers[i] in q["options"]
         else 0
     )
-
-    # Display the radio button and store the selected answer
     selected = st.radio(
         f"Choose your answer for Q{i + 1}",
         q["options"],
@@ -44,22 +61,34 @@ for i, q in enumerate(st.session_state.quiz_questions):
         key=f"q{i}"
     )
 
-    st.session_state.answers[i] = selected
+    #selected = st.radio(
+     #   f"Choose your answer for Q{i + 1}",
+      #  q["options"],
+       # index=index,
+        #key=f"q{i}"
+    #)
 
+    st.session_state.answers[i] = selected
 
 # Submit button
 if not st.session_state.submitted:
     if st.button("Submit Quiz"):
-        st.session_state.submitted = True
-        st.rerun()
+        if not st.session_state.user_info["name"] or not st.session_state.user_info["email"]:
+            st.warning("Please enter both name and email before submitting.")
+        else:
+            st.session_state.submitted = True
+            st.rerun()
 
 # Show results
 if st.session_state.submitted:
     score = 0
     st.subheader("📊 Results")
     for i, q in enumerate(st.session_state.quiz_questions):
-        correct_index = q["answer"][0]
+        #correct_index = q["answer"][0]
+        #correct_option = q["options"][correct_index]
+        correct_index = q["answer"][0]  # answer is a list of indices
         correct_option = q["options"][correct_index]
+
         user_answer = st.session_state.answers[i]
         is_correct = user_answer == correct_option
 
@@ -89,16 +118,9 @@ if st.session_state.submitted:
         "score": score,
         "total": len(st.session_state.quiz_questions),
         "answers": st.session_state.answers,
-        "questions": [q["question"] for q in st.session_state.quiz_questions]
+        "questions": [q["question"] for q in st.session_state.quiz_questions],
+        "collection_used": collection_choice  # ✅ log which collection was used
     }
-
-    if not st.session_state.submitted:
-        if st.button("Submit Quiz"):
-            if not st.session_state.user_info["name"] or not st.session_state.user_info["email"]:
-                st.warning("Please enter both name and email before submitting.")
-            else:
-                st.session_state.submitted = True
-                st.rerun()
 
     db[SCORE_COLLECTION].insert_one(score_data)
     st.success("✅ Your score has been logged to the database.")
